@@ -1,0 +1,637 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex, nofollow">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Investimentos">
+<meta name="theme-color" content="#082F49">
+<title>Meus Investimentos</title>
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<link rel="icon" type="image/png" href="apple-touch-icon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<!--
+  Meus Investimentos — versão web (iPhone) da sub-aba Pessoal > Investimentos
+  do OpsDesk (pessoal_engine._render_rebalanceamento). Mesma regra: alvos,
+  spread/IOF, rebalanceamento Brasil x Global, patrimônio consolidado e zonas
+  de volatilidade + aporte extra do BTC. Sem servidor: câmbio e candles vêm de
+  APIs públicas com CORS, e os valores digitados ficam só no aparelho
+  (localStorage) — nada vai para o arquivo publicado.
+-->
+<style>
+/* Paleta: #082F49 fundo · #0E7490 destaque · #22C55E positivo/ativo ·
+   #BAE6FD texto secundário · #F0FDFF texto. Amarelo/vermelho só como
+   semântica (alerta/erro) nos desvios e zonas. */
+:root {
+  --fundo: #082F49;
+  --painel: #0B3A58;
+  --borda: #134A6B;
+  --texto: #F0FDFF;
+  --azul-claro: #BAE6FD;
+  --cinza: rgba(186, 230, 253, 0.72);
+  --destaque: #0E7490;
+  --verde: #22C55E;
+  --vermelho: #FF3B30;
+  --amarelo: #FFD600;
+  --grafico: #061F33;
+}
+* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+html, body { margin: 0; background: var(--fundo); color: var(--texto); }
+body {
+  font-family: 'Inter', -apple-system, sans-serif; font-size: 14px;
+  padding: calc(env(safe-area-inset-top) + 8px) 16px calc(env(safe-area-inset-bottom) + 24px);
+  max-width: 720px; margin: 0 auto;
+}
+
+/* Sub-abas (mesmo desenho do radio estilizado do app) */
+.abas { display: flex; gap: 20px; border-bottom: 1px solid var(--borda); overflow-x: auto; }
+.abas button {
+  background: none; border: 0; padding: 6px 0 10px; cursor: pointer; white-space: nowrap;
+  font: 500 12px 'Inter', sans-serif; letter-spacing: .5px; color: var(--cinza);
+  border-bottom: 2px solid transparent; margin-bottom: -1px;
+}
+.abas button.ativa { color: var(--texto); border-bottom-color: var(--verde); }
+.aba { display: none; }
+.aba.ativa { display: block; }
+
+.sec-hdr {
+  font-size: .67rem; font-weight: 600; text-transform: uppercase; letter-spacing: .14em;
+  color: var(--azul-claro); border-bottom: 1px solid var(--borda);
+  padding-bottom: .4rem; margin: 1.4rem 0 .9rem;
+}
+/* Câmbio no canto do cabeçalho da seção (mesmo desenho do antigo topo) */
+.sec-hdr.com-fx { display: flex; justify-content: space-between; align-items: flex-end; gap: 12px; }
+.fx { font-size: .78rem; font-weight: 400; color: var(--cinza); text-align: right; text-transform: none; letter-spacing: 0; }
+.fx strong { color: var(--azul-claro); font-weight: 600; }
+.fx small { display: block; font-size: .65rem; margin-top: 2px; }
+.sub-hdr { font-size: .7rem; color: var(--cinza); text-transform: uppercase; letter-spacing: .08em; margin: 1rem 0 .5rem; }
+
+.grade { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.campo label { display: block; font-size: .72rem; color: var(--cinza); margin-bottom: 4px; }
+.campo input {
+  width: 100%; height: 42px; padding: 0 10px; border-radius: 6px;
+  background: var(--painel); border: 1px solid var(--borda); color: var(--texto);
+  font: 400 16px 'Inter', sans-serif; /* 16px: abaixo disso o iOS dá zoom no foco */
+}
+.campo input:focus { outline: none; border-color: var(--destaque); }
+.campo input::placeholder { color: rgba(186, 230, 253, 0.35); }
+
+.regua-rot { display: flex; justify-content: space-between; font-size: .78rem; color: var(--cinza); margin-bottom: 6px; }
+.regua-rot strong { color: var(--texto); font-weight: 600; }
+input[type=range] { width: 100%; accent-color: var(--destaque); height: 28px; margin: 0; }
+
+.kpis { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 14px; }
+.kpi {
+  background: var(--painel); border: 1px solid var(--borda); border-top: 2px solid var(--destaque);
+  padding: .75rem .6rem .7rem; text-align: center; min-width: 0;
+}
+.kpi-label { font-size: .6rem; font-weight: 500; text-transform: uppercase; letter-spacing: .1em; color: var(--cinza); }
+.kpi-value { font-size: 1.15rem; font-weight: 600; margin-top: .25rem; line-height: 1.1; overflow-wrap: anywhere; }
+.kpi-sub { font-size: .65rem; color: var(--cinza); margin-top: .25rem; }
+
+/* Ativo da carteira: card no lugar da tabela de 7 colunas */
+.ativo { background: var(--painel); border: 1px solid var(--borda); padding: .6rem .75rem; margin-bottom: 6px; }
+.ativo-l1 { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+.ativo-nome { font-weight: 600; font-size: .85rem; }
+.ativo-aporte { font-weight: 700; font-size: .9rem; color: var(--verde); }
+.ativo-aporte.nada { color: var(--cinza); font-weight: 400; }
+.ativo-l2 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; margin-top: .4rem; font-size: .7rem; color: var(--cinza); }
+.ativo-l2 b { display: block; color: var(--texto); font-weight: 500; font-size: .78rem; }
+
+.consolidado {
+  background: var(--painel); border: 2px solid var(--verde); padding: 1.1rem 1rem; text-align: center; margin-top: 16px;
+}
+.consolidado .rot { font-size: .58rem; color: var(--cinza); text-transform: uppercase; letter-spacing: .18em; }
+.consolidado .val { font-size: 2rem; font-weight: 700; color: var(--verde); line-height: 1.1; margin-top: .5rem; }
+.consolidado .rodape { border-top: 1px solid var(--borda); margin-top: .8rem; padding-top: .6rem; font-size: .75rem; color: var(--cinza); line-height: 1.5; }
+
+.btc-info { background: var(--painel); border: 1px solid var(--borda); padding: .7rem .6rem; margin-top: 12px; text-align: center; }
+.btc-info .linha { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; }
+.btc-info .r { font-size: .55rem; color: var(--cinza); text-transform: uppercase; letter-spacing: .06em; }
+.btc-info .v { font-size: .82rem; margin-top: 2px; overflow-wrap: anywhere; }
+.btc-info .desc { font-size: .72rem; color: var(--cinza); margin-top: .5rem; }
+
+.legenda { display: flex; flex-wrap: wrap; gap: 12px; font-size: .68rem; color: var(--cinza); margin: 8px 0 4px; }
+.legenda svg { vertical-align: middle; margin-right: 4px; }
+#grafico { position: relative; background: var(--grafico); border: 1px solid var(--borda); touch-action: pan-y; }
+#grafico svg { display: block; width: 100%; }
+#dica {
+  position: absolute; top: 6px; left: 6px; pointer-events: none; display: none;
+  background: rgba(8, 47, 73, 0.94); border: 1px solid var(--borda); padding: 5px 8px;
+  font-size: .68rem; line-height: 1.45; color: var(--texto);
+}
+
+.evento { background: var(--painel); border: 1px solid var(--borda); padding: .45rem .7rem; margin-bottom: 5px; }
+.evento .l1 { display: flex; justify-content: space-between; }
+.evento .z { font-size: .65rem; font-weight: 700; }
+.evento .a { font-size: .85rem; font-weight: 700; }
+.evento .l2 { font-size: .65rem; color: var(--cinza); margin-top: 2px; }
+.total-btc { background: var(--painel); border: 1px solid var(--borda); border-left: 3px solid; padding: .6rem .85rem; margin: 12px 0 6px; }
+.total-btc .r { font-size: .55rem; text-transform: uppercase; letter-spacing: .09em; }
+.total-btc .v { font-size: 1.15rem; font-weight: 700; margin-top: .25rem; }
+.total-btc .s { font-size: .65rem; color: var(--cinza); margin-top: .2rem; }
+.aviso { color: var(--cinza); font-size: .75rem; padding: .5rem 0; }
+</style>
+</head>
+<body>
+
+<nav class="abas" id="abas">
+  <button data-aba="rebal">REBALANCEAMENTO</button>
+  <button data-aba="patri">PATRIMÔNIO</button>
+  <button data-aba="btc">BITCOIN</button>
+</nav>
+
+<!-- ══ 1. Rebalanceamento ══ -->
+<section class="aba" id="aba-rebal">
+  <div class="sec-hdr com-fx"><span>Rebalanceamento</span>
+    <div class="fx">USD/BRL &middot; <strong id="cambio">—</strong><small id="cambio-quando"></small></div></div>
+  <div class="regua-rot">
+    <span>&larr; <strong id="rot-gl">GLOBAL (USD) 50%</strong></span>
+    <span><strong id="rot-br">BRASIL (R$) 50%</strong> &rarr;</span>
+  </div>
+  <input type="range" id="meta_brl" min="0" max="100" step="5" value="50">
+  <div class="grade" style="margin-top:10px">
+    <div class="campo"><label for="ap_brl">Aporte R$</label>
+      <input id="ap_brl" class="num" inputmode="decimal" placeholder="0,00"></div>
+  </div>
+
+  <div class="sub-hdr">Brasil (R$)</div>
+  <div class="grade" id="inp-br"></div>
+  <div class="sub-hdr">Global (USD)</div>
+  <div class="grade" id="inp-gl"></div>
+
+  <div class="kpis" id="kpis"></div>
+
+  <div class="sub-hdr" id="hdr-br"></div>
+  <div id="cart-br"></div>
+  <div class="sub-hdr" id="hdr-gl"></div>
+  <div id="cart-gl"></div>
+</section>
+
+<!-- ══ 2. Visão global do patrimônio ══ -->
+<section class="aba" id="aba-patri">
+  <div class="sec-hdr">Visão Global do Patrimônio</div>
+  <div class="grade" id="inp-saldos"></div>
+  <div class="consolidado">
+    <div class="rot">Patrimônio Consolidado</div>
+    <div class="val" id="total-geral">R$ 0</div>
+    <div class="rodape" id="total-rodape"></div>
+  </div>
+</section>
+
+<!-- ══ 3. Bitcoin — aporte extra ══ -->
+<section class="aba" id="aba-btc">
+  <div class="sec-hdr">Bitcoin</div>
+  <div id="btc-carregando" class="aviso">Buscando dados do BTC...</div>
+  <div id="btc-conteudo" style="display:none">
+    <div class="legenda" id="legenda"></div>
+    <div id="grafico"><div id="dica"></div></div>
+    <div class="grade" style="margin-top:14px">
+      <div class="campo"><label for="btc_saldo">Saldo BTC (R$)</label>
+        <input id="btc_saldo" class="num" inputmode="decimal" placeholder="0,00"></div>
+    </div>
+    <div class="btc-info" id="btc-info"></div>
+    <div style="margin-top:14px">
+      <div class="regua-rot"><span>Coeficiente de agressividade (K)</span><strong id="rot-k">0,30</strong></div>
+      <input type="range" id="btc_K" min="0.1" max="1" step="0.05" value="0.3">
+      <div class="regua-rot" style="font-size:.65rem"><span>0,1 conservador</span><span>0,3 moderado</span><span>0,6 agressivo</span></div>
+    </div>
+    <div id="btc-eventos"></div>
+  </div>
+</section>
+
+<script>
+// ── Configuração estratégica (igual a pessoal_engine._render_rebalanceamento) ──
+const TARGETS = {
+  brasil: { "Tesouro Selic": 0.55, "Tesouro Renda+ 2060": 0.35, "Previdência": 0.10 },
+  global: { "VT": 0.25, "VOO": 0.50, "IEMG": 0.10, "VGT": 0.15 },
+};
+const SPREAD = 0.005, IOF = 0.011, DESVIO_LIMITE = 0.10;
+const CAMBIO_PADRAO = 5.0;   // mesmo fallback do app quando não há cotação
+
+// (rótulo, chave, moeda) — saldo total de cada conta na moeda dela
+const SALDOS = [
+  ["XP Guilherme", "cs_xp_gui", "BRL"], ["XP Guilherme", "cs_xp_gui_usd", "USD"],
+  ["XP Camila", "cs_xp_cam", "BRL"],    ["XP Camila", "cs_xp_cam_usd", "USD"],
+  ["BTC", "cs_btc", "BRL"],             ["Itaú", "cs_itau", "BRL"],
+  ["Nubank", "cs_nubank", "BRL"],       ["C6", "cs_c6", "BRL"],
+  ["Nomad", "cs_nomad", "USD"],         ["Hyperliquid", "cs_hyperliq", "USD"],
+];
+
+const COR = { verde: "#22C55E", amarelo: "#FFD600", vermelho: "#FF3B30", cinza: "rgba(186,230,253,0.72)",
+              texto: "#F0FDFF", claro: "#BAE6FD", grade: "#0E3A57" };
+
+// ── Persistência local (só neste aparelho) ──
+const LS = "meus-investimentos:v1";
+let estado = {};
+try { estado = JSON.parse(localStorage.getItem(LS)) || {}; } catch (e) { estado = {}; }
+function salvar() { try { localStorage.setItem(LS, JSON.stringify(estado)); } catch (e) {} }
+
+// ── Formatação BR ──
+const fmt = (v, casas = 0) => Number(v || 0).toLocaleString("pt-BR",
+  { minimumFractionDigits: casas, maximumFractionDigits: casas });
+const brl = v => "R$ " + fmt(v, 0);
+const brl2 = v => "R$ " + fmt(v, 2);
+const usd = v => "USD " + fmt(v, 2);
+const usd0 = v => "USD " + fmt(v, 0);
+const pct = (v, casas = 1, sinal = false) => (sinal && v >= 0 ? "+" : "") + fmt(v * 100, casas) + "%";
+function parseNum(s) {
+  s = String(s || "").replace(/[R$\sUSD]/g, "");
+  if (!s) return 0;
+  if (s.includes(",")) s = s.replace(/\./g, "").replace(",", ".");
+  const v = parseFloat(s);
+  return isFinite(v) && v > 0 ? v : 0;
+}
+const corDesvio = d => Math.abs(d) <= 0.05 ? COR.verde : Math.abs(d) <= DESVIO_LIMITE ? COR.amarelo : COR.vermelho;
+const $ = id => document.getElementById(id);
+
+// ── Campos ──
+function criarCampo(destino, chave, rotulo) {
+  const d = document.createElement("div");
+  d.className = "campo";
+  d.innerHTML = `<label for="${chave}">${rotulo}</label>
+    <input id="${chave}" class="num" inputmode="decimal" placeholder="0,00">`;
+  destino.appendChild(d);
+}
+Object.keys(TARGETS.brasil).forEach(a => criarCampo($("inp-br"), "port_br_" + a, a));
+Object.keys(TARGETS.global).forEach(a => criarCampo($("inp-gl"), "port_gl_" + a, a));
+SALDOS.forEach(([r, k, m]) => criarCampo($("inp-saldos"), k, `${r} (${m === "BRL" ? "R$" : "USD"})`));
+
+document.querySelectorAll("input.num").forEach(inp => {
+  if (estado[inp.id]) inp.value = fmt(estado[inp.id], 2);
+  inp.addEventListener("input", () => { estado[inp.id] = parseNum(inp.value); salvar(); recalcular(); });
+  inp.addEventListener("blur", () => { const v = parseNum(inp.value); inp.value = v ? fmt(v, 2) : ""; });
+});
+const val = id => estado[id] || 0;
+
+["meta_brl", "btc_K"].forEach(id => {
+  if (estado[id] != null) $(id).value = estado[id];
+  $(id).addEventListener("input", () => { estado[id] = parseFloat($(id).value); salvar(); recalcular(); });
+});
+
+// ── Abas ──
+function abrirAba(nome) {
+  document.querySelectorAll(".abas button").forEach(b => b.classList.toggle("ativa", b.dataset.aba === nome));
+  document.querySelectorAll(".aba").forEach(s => s.classList.toggle("ativa", s.id === "aba-" + nome));
+  estado.aba = nome; salvar();
+  if (nome === "btc") desenharGrafico();
+}
+document.querySelectorAll(".abas button").forEach(b => b.addEventListener("click", () => abrirAba(b.dataset.aba)));
+
+// ── Rebalanceamento (mesma conta de _rebalan) ──
+function rebalan(brasil, global, aporteBrl, aporteUsd, cambio, META) {
+  const soma = o => Object.values(o).reduce((a, b) => a + b, 0);
+  const totalBr = soma(brasil), totalGl = soma(global) * cambio, totalPat = totalBr + totalGl;
+  const pesoBr = totalPat ? totalBr / totalPat : 0, pesoGl = totalPat ? totalGl / totalPat : 0;
+  const totalAp = aporteBrl + aporteUsd * cambio * (1 - SPREAD - IOF);
+  const totalFut = totalPat + totalAp;
+  const necBr = totalFut * META.brasil - totalBr, necGl = totalFut * META.global - totalGl;
+  let alocBr, alocGl;
+  if (necBr > 0 && necGl > 0) { alocBr = totalAp * necBr / (necBr + necGl); alocGl = totalAp * necGl / (necBr + necGl); }
+  else if (necBr <= 0) { alocBr = 0; alocGl = totalAp; }
+  else { alocBr = totalAp; alocGl = 0; }
+
+  const recBr = {};
+  for (const [at, pa] of Object.entries(TARGETS.brasil)) {
+    const va = brasil[at] || 0, alvo = (totalBr + alocBr) * pa;
+    recBr[at] = { atual: va, alvo, aporte: Math.max(0, alvo - va),
+      desvio: totalBr ? va / totalBr - pa : -pa, peso_atual: totalBr ? va / totalBr : 0, peso_alvo: pa };
+  }
+  let s = Object.values(recBr).reduce((a, v) => a + v.aporte, 0);
+  if (s > 0) { const f = Math.min(1, alocBr / s); Object.values(recBr).forEach(v => v.aporte *= f); }
+
+  const alocGlUsd = cambio ? alocGl / cambio * (1 - SPREAD - IOF) : 0;
+  const totalGlUsd = soma(global);
+  const recGl = {};
+  for (const [at, pa] of Object.entries(TARGETS.global)) {
+    const va = global[at] || 0, alvo = (totalGlUsd + alocGlUsd) * pa;
+    recGl[at] = { atual: va, alvo, aporte: Math.max(0, alvo - va),
+      desvio: totalGlUsd ? va / totalGlUsd - pa : -pa, peso_atual: totalGlUsd ? va / totalGlUsd : 0, peso_alvo: pa };
+  }
+  s = Object.values(recGl).reduce((a, v) => a + v.aporte, 0);
+  if (s > 0) { const f = Math.min(1, alocGlUsd / s); Object.values(recGl).forEach(v => v.aporte *= f); }
+
+  return { totalBr, totalGl, totalPat, pesoBr, pesoGl, devBr: pesoBr - META.brasil, devGl: pesoGl - META.global,
+           alocBr, alocGl, alocGlUsd, recBr, recGl, totalAp };
+}
+
+function kpi(rot, v, sub = "", cor = COR.cinza) {
+  return `<div class="kpi"><div class="kpi-label">${rot}</div><div class="kpi-value">${v}</div>
+    ${sub ? `<div class="kpi-sub" style="color:${cor}">${sub}</div>` : ""}</div>`;
+}
+function cardsAtivos(rec, f) {
+  return Object.entries(rec).map(([at, v]) => `
+    <div class="ativo">
+      <div class="ativo-l1"><span class="ativo-nome">${at}</span>
+        <span class="ativo-aporte ${v.aporte > 0.5 ? "" : "nada"}">${v.aporte > 0.5 ? "+ " + f(v.aporte) : "—"}</span></div>
+      <div class="ativo-l2">
+        <span>Atual<b>${f(v.atual)}</b></span>
+        <span>Alvo<b>${f(v.alvo)}</b></span>
+        <span>Peso / alvo<b>${pct(v.peso_atual)} / ${pct(v.peso_alvo, 0)}</b></span>
+      </div>
+      <div class="ativo-l2" style="grid-template-columns:1fr">
+        <span>Desvio <b style="display:inline;color:${corDesvio(v.desvio)}">${pct(v.desvio, 1, true)}</b></span>
+      </div>
+    </div>`).join("");
+}
+
+let cambio = estado.cambio || CAMBIO_PADRAO;
+let btc = null;
+
+function recalcular() {
+  // Rebalanceamento
+  const metaBr = parseInt($("meta_brl").value, 10);
+  $("rot-gl").textContent = `GLOBAL (USD) ${100 - metaBr}%`;
+  $("rot-br").textContent = `BRASIL (R$) ${metaBr}%`;
+  const META = { brasil: metaBr / 100, global: 1 - metaBr / 100 };
+  const brasil = {}, global = {};
+  Object.keys(TARGETS.brasil).forEach(a => brasil[a] = val("port_br_" + a));
+  Object.keys(TARGETS.global).forEach(a => global[a] = val("port_gl_" + a));
+  const r = rebalan(brasil, global, val("ap_brl"), 0, cambio, META);   // aporte só em BRL
+
+  $("kpis").innerHTML =
+    kpi("Carteira Total", brl(r.totalPat)) +
+    kpi("Aporte", brl(r.totalAp), `Brasil ${brl(r.alocBr)} · Global ${usd(r.alocGlUsd)}`) +
+    kpi("Brasil", brl(r.totalBr), `${fmt(r.pesoBr * 100, 1)}% · desvio ${pct(r.devBr, 1, true)}`, corDesvio(r.devBr)) +
+    kpi("Global", brl(r.totalGl), `${fmt(r.pesoGl * 100, 1)}% · desvio ${pct(r.devGl, 1, true)}`, corDesvio(r.devGl));
+  $("hdr-br").textContent = `Carteira Brasil — aporte disponível: ${brl(r.alocBr)}`;
+  $("hdr-gl").textContent = `Carteira Global — aporte disponível: ${usd(r.alocGlUsd)} (≈ ${brl(r.alocGl)})`;
+  $("cart-br").innerHTML = cardsAtivos(r.recBr, brl);
+  $("cart-gl").innerHTML = cardsAtivos(r.recGl, usd);
+
+  // Patrimônio consolidado
+  let totBrl = 0, totUsd = 0;
+  SALDOS.forEach(([, k, m]) => { if (m === "BRL") totBrl += val(k); else totUsd += val(k); });
+  $("total-geral").textContent = brl(totBrl + totUsd * cambio);
+  $("cambio").textContent = "R$ " + fmt(cambio, 4);
+  $("cambio-quando").textContent = cambioQuando;
+  $("total-rodape").innerHTML = `R$ ${fmt(totBrl, 0)} + USD ${fmt(totUsd, 0)}<br>USD/BRL R$ ${fmt(cambio, 4)} &middot; ${cambioQuando}`;
+
+  $("rot-k").textContent = fmt(parseFloat($("btc_K").value), 2);
+  renderBtcPainel();
+}
+
+// ── Câmbio (AwesomeAPI; reserva: open.er-api) ──
+async function buscarCambio() {
+  try {
+    const j = await (await fetch("https://economia.awesomeapi.com.br/json/last/USD-BRL", { cache: "no-store" })).json();
+    const v = parseFloat(j.USDBRL.bid);
+    if (v > 0) return { v, quando: new Date(parseInt(j.USDBRL.timestamp, 10) * 1000) };
+  } catch (e) {}
+  try {
+    const j = await (await fetch("https://open.er-api.com/v6/latest/USD", { cache: "no-store" })).json();
+    const v = j.rates && j.rates.BRL;
+    if (v > 0) return { v, quando: new Date(j.time_last_update_unix * 1000) };
+  } catch (e) {}
+  return null;
+}
+let cambioQuando = "última cotação salva";
+function mostrarCambio(quando, offline) {
+  cambioQuando = offline || !quando ? "última cotação salva"
+    : "cotação de " + quando.toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
+}
+
+// ── BTC (mesma lógica de _calcular_btc / _bandas_para_mes) ──
+// Candles diários BTCUSDT da Binance (dia em UTC, como o BTC-USD do Yahoo)
+const ym = d => d.toISOString().slice(0, 7);
+const VOL_PERIOD = 20;
+
+function stdAmostral(arr) {
+  const m = arr.reduce((a, b) => a + b, 0) / arr.length;
+  return Math.sqrt(arr.reduce((a, b) => a + (b - m) ** 2, 0) / (arr.length - 1));
+}
+const r6 = x => Math.round(x * 1e6) / 1e6;
+
+function bandasParaMes(hist, ano, mes) {   // mes 1–12
+  const fimMesAnt = new Date(Date.UTC(ano, mes - 1, 0));
+  const refStr = ym(fimMesAnt);
+  let ref = hist.filter(c => ym(c.t) === refStr);
+  if (!ref.length) ref = hist.filter(c => c.t <= fimMesAnt);
+  if (!ref.length) return null;
+  const u = ref[ref.length - 1];
+  if (u.volMensal == null || isNaN(u.volMensal)) return null;
+  const b = u.c, v = u.volMensal;
+  return { base: b, ub1: b * (1 + v), ub2: b * (1 + 2 * v), lb1: b * (1 - v), lb2: b * (1 - 2 * v),
+           vol_mensal: v, vol_anual: u.volAnual,
+           mes_ref: String(fimMesAnt.getUTCMonth() + 1).padStart(2, "0") + "/" + fimMesAnt.getUTCFullYear() };
+}
+function ultDuMes(ano, mes) {
+  const d = new Date(Date.UTC(ano, mes, 0));
+  while (d.getUTCDay() === 0 || d.getUTCDay() === 6) d.setUTCDate(d.getUTCDate() - 1);
+  return d;
+}
+
+async function calcularBtc() {
+  let raw = null;
+  for (const host of ["https://data-api.binance.vision", "https://api.binance.com"]) {
+    try {
+      const r = await fetch(`${host}/api/v3/klines?symbol=BTCUSDT&interval=1d&limit=1000`, { cache: "no-store" });
+      if (r.ok) { raw = await r.json(); break; }
+    } catch (e) {}
+  }
+  if (!raw || !raw.length) return null;
+  const agora = Date.now();
+  const todos = raw.map(k => ({ t: new Date(k[0]), o: +k[1], h: +k[2], l: +k[3], c: +k[4], parcial: k[6] > agora }));
+
+  // Candle do dia ainda aberto fica fora do histórico de σ (preço atual vem dele)
+  const intra = todos[todos.length - 1].parcial ? todos[todos.length - 1] : null;
+  const hist = intra ? todos.slice(0, -1) : todos.slice();
+  const precoAtual = intra ? intra.c : hist[hist.length - 1].c;
+
+  hist.forEach((c, i) => {
+    c.ret = i ? c.c / hist[i - 1].c - 1 : NaN;
+    if (i >= VOL_PERIOD) {
+      const janela = hist.slice(i - VOL_PERIOD + 1, i + 1).map(x => x.ret);
+      c.volAnual = r6(stdAmostral(janela) * Math.sqrt(252));
+      c.volMensal = r6(c.volAnual / Math.sqrt(12));
+    } else { c.volAnual = NaN; c.volMensal = NaN; }
+  });
+
+  const hoje = new Date();
+  const anoH = hoje.getFullYear(), mesH = hoje.getMonth() + 1;
+  const bAtual = bandasParaMes(hist, anoH, mesH);
+  if (!bAtual) return null;
+
+  // ATH: máxima dos últimos 2 anos
+  const corte2a = new Date(Date.UTC(anoH - 2, hoje.getMonth(), hoje.getDate()));
+  const ath = Math.max(...todos.filter(c => c.t >= corte2a).map(c => c.h));
+
+  // Candles fechados do mês atual, para varrer as zonas atingidas
+  const mesStr = `${anoH}-${String(mesH).padStart(2, "0")}`;
+  const dfMes = hist.filter(c => ym(c.t) === mesStr);
+
+  const b = { preco_base: bAtual.base, preco_atual: precoAtual, vol_anual: bAtual.vol_anual,
+    vol_mensal: bAtual.vol_mensal, ub1: bAtual.ub1, ub2: bAtual.ub2, lb1: bAtual.lb1, lb2: bAtual.lb2,
+    mes_ref: bAtual.mes_ref, ath, dfMes };
+  const p = precoAtual;
+  if (p > b.ub2)             b.posicao = ["SOBRECOMPRADO", "Acima de +2σ — risco elevado de reversão", COR.vermelho];
+  else if (p > b.ub1)        b.posicao = ["AQUECIDO", "Entre +1σ e +2σ — momentum positivo, atenção", COR.amarelo];
+  else if (p > b.preco_base) b.posicao = ["NEUTRO-ALTA", "Acima do preço-base, dentro das bandas normais", COR.claro];
+  else if (p > b.lb1)        b.posicao = ["NEUTRO-BAIXA", "Abaixo do preço-base, dentro das bandas normais", COR.texto];
+  else if (p > b.lb2)        b.posicao = ["BARATO", "Entre -1σ e -2σ — zona de acumulação histórica", COR.verde];
+  else                       b.posicao = ["MUITO BARATO", "Abaixo de -2σ — evento raro, oportunidade forte", COR.verde];
+
+  // Gráfico: 3 meses (mês-2, mês-1, mês atual), bandas de cada mês até o último DU
+  const meses = [];
+  for (let k = 2; k >= 0; k--) { const d = new Date(anoH, hoje.getMonth() - k, 1); meses.push([d.getFullYear(), d.getMonth() + 1]); }
+  const inicio = new Date(Date.UTC(meses[0][0], meses[0][1] - 1, 1));
+  b.graf = {
+    candles: hist.filter(c => c.t >= inicio), intra, inicio, fim: ultDuMes(anoH, mesH),
+    bandas: meses.map(([a, m]) => ({ a, m, x0: new Date(Date.UTC(a, m - 1, 1)), x1: ultDuMes(a, m), b: bandasParaMes(hist, a, m) }))
+                 .filter(x => x.b),
+  };
+  return b;
+}
+
+// (chave, cor, rótulo, tracejado, espessura) — -1σ e -2σ no verde das zonas de compra,
+// separados pelo traço; velas de alta em verde e de baixa em azul claro (o
+// teal #0E7490 some no fundo escuro do gráfico)
+const BANDAS = [["ub2", "#F0FDFF", "+2σ", "5 4", 1.5], ["ub1", "#BAE6FD", "+1σ", "5 4", 1.5],
+                ["base", "rgba(186,230,253,0.45)", "Base", "5 4", 1.5],
+                ["lb1", "#22C55E", "-1σ", "5 4", 1.5], ["lb2", "#22C55E", "-2σ", "1.5 3", 2.2]];
+const VELA = { alta: "#22C55E", baixa: "#BAE6FD" };
+$("legenda").innerHTML = BANDAS.map(([, c, s, d, w]) =>
+  `<span><svg width="16" height="4"><line x1="0" x2="16" y1="2" y2="2" stroke="${c}" stroke-width="${w}" stroke-dasharray="${d}"/></svg>${s}</span>`).join("");
+
+function desenharGrafico() {
+  if (!btc || !$("aba-btc").classList.contains("ativa")) return;
+  const g = btc.graf, box = $("grafico");
+  const W = box.clientWidth || 340, H = Math.round(Math.min(400, Math.max(260, W * 0.75)));
+  const ML = 4, MR = 52, MT = 10, MB = 22;
+  const velas = g.intra ? [...g.candles, g.intra] : g.candles;
+  const vals = velas.flatMap(c => [c.h, c.l]).concat(g.bandas.flatMap(x => [x.b.ub2, x.b.lb2]));
+  let yMin = Math.min(...vals), yMax = Math.max(...vals);
+  const pad = (yMax - yMin) * 0.04; yMin -= pad; yMax += pad;
+  const t0 = g.inicio.getTime(), t1 = g.fim.getTime() + 864e5;
+  const X = t => ML + (t - t0) / (t1 - t0) * (W - ML - MR);
+  const Y = v => MT + (yMax - v) / (yMax - yMin) * (H - MT - MB);
+  const larg = Math.max(1, (W - ML - MR) / ((t1 - t0) / 864e5) * 0.7);
+
+  let svg = `<svg viewBox="0 0 ${W} ${H}" height="${H}" font-family="Inter" font-size="10">`;
+  // grade horizontal + rótulos de preço
+  const passo = Math.pow(10, Math.floor(Math.log10((yMax - yMin) / 4)));
+  const mult = [1, 2, 2.5, 5, 10].find(m => (yMax - yMin) / (passo * m) <= 6) * passo;
+  for (let v = Math.ceil(yMin / mult) * mult; v <= yMax; v += mult) {
+    svg += `<line x1="${ML}" x2="${W - MR}" y1="${Y(v)}" y2="${Y(v)}" stroke="${COR.grade}"/>
+      <text x="${W - MR + 4}" y="${Y(v) + 3}" fill="${COR.cinza}">${fmt(v / 1000, 0)} mil</text>`;
+  }
+  // meses no eixo x
+  g.bandas.concat().forEach(x => {
+    const nome = x.x0.toLocaleString("pt-BR", { month: "short", timeZone: "UTC" }).replace(".", "");
+    svg += `<line x1="${X(x.x0)}" x2="${X(x.x0)}" y1="${MT}" y2="${H - MB}" stroke="${COR.grade}"/>
+      <text x="${X(x.x0) + 4}" y="${H - 7}" fill="${COR.cinza}">${nome}/${String(x.a).slice(2)}</text>`;
+  });
+  // bandas tracejadas
+  g.bandas.forEach(x => BANDAS.forEach(([k, cor, , traco, esp]) => {
+    svg += `<line x1="${X(x.x0)}" x2="${X(x.x1.getTime() + 864e5)}" y1="${Y(x.b[k])}" y2="${Y(x.b[k])}"
+      stroke="${cor}" stroke-width="${esp}" stroke-dasharray="${traco}"/>`;
+  }));
+  // velas
+  velas.forEach(c => {
+    const cor = c.c >= c.o ? VELA.alta : VELA.baixa, xc = X(c.t.getTime() + 432e5);
+    const op = c === g.intra ? ' opacity="0.75"' : "";
+    const yTop = Y(Math.max(c.o, c.c)), hCorpo = Math.max(1, Math.abs(Y(c.o) - Y(c.c)));
+    svg += `<g${op}><line x1="${xc}" x2="${xc}" y1="${Y(c.h)}" y2="${Y(c.l)}" stroke="${cor}"/>
+      <rect x="${xc - larg / 2}" y="${yTop}" width="${larg}" height="${hCorpo}" fill="${cor}"/></g>`;
+  });
+  svg += `<line id="mira" x1="0" x2="0" y1="${MT}" y2="${H - MB}" stroke="${COR.claro}" stroke-dasharray="2 3" visibility="hidden"/></svg>`;
+  box.innerHTML = svg + `<div id="dica"></div>`;
+
+  // Toque: mostra a vela mais próxima
+  const s = box.querySelector("svg"), mira = box.querySelector("#mira"), dica = $("dica");
+  function mostrar(ev) {
+    const rect = s.getBoundingClientRect(), px = (ev.clientX - rect.left) * W / rect.width;
+    let melhor = velas[0];
+    velas.forEach(c => { if (Math.abs(X(c.t.getTime() + 432e5) - px) < Math.abs(X(melhor.t.getTime() + 432e5) - px)) melhor = c; });
+    const xc = X(melhor.t.getTime() + 432e5);
+    mira.setAttribute("x1", xc); mira.setAttribute("x2", xc); mira.setAttribute("visibility", "visible");
+    const banda = g.bandas.find(x => melhor.t >= x.x0 && melhor.t.getTime() < x.x1.getTime() + 864e5);
+    dica.innerHTML = `<b>${melhor.t.toLocaleDateString("pt-BR", { timeZone: "UTC" })}${melhor === g.intra ? " (parcial)" : ""}</b><br>
+      A ${fmt(melhor.o)} · M ${fmt(melhor.h)}<br>m ${fmt(melhor.l)} · F ${fmt(melhor.c)}` +
+      (banda ? `<br><span style="color:${COR.cinza}">base ${fmt(banda.b.base)} · −1σ ${fmt(banda.b.lb1)} · −2σ ${fmt(banda.b.lb2)}</span>` : "");
+    dica.style.display = "block";
+    dica.style.left = (xc / W * rect.width > rect.width / 2 ? 6 : rect.width - dica.offsetWidth - 6) + "px";
+  }
+  s.addEventListener("pointerdown", mostrar);
+  s.addEventListener("pointermove", ev => { if (ev.pointerType !== "touch" || ev.buttons) mostrar(ev); });
+  s.addEventListener("pointerleave", () => { mira.setAttribute("visibility", "hidden"); dica.style.display = "none"; });
+}
+window.addEventListener("resize", desenharGrafico);
+
+function renderBtcPainel() {
+  if (!btc) return;
+  // Campo próprio; vazio, cai no saldo BTC da visão global
+  const posicao = val("btc_saldo") || val("cs_btc");
+  const [zona, desc, cor] = btc.posicao;
+  $("btc-info").innerHTML = `<div class="linha">
+      <div><div class="r">Preço</div><div class="v">${usd0(btc.preco_atual)}</div></div>
+      <div><div class="r">Vol. Mensal</div><div class="v">${fmt(btc.vol_mensal * 100, 2)}%</div></div>
+      <div><div class="r">Posição</div><div class="v">${brl(posicao)}</div></div>
+      <div><div class="r">Zona</div><div class="v" style="font-weight:700;color:${cor}">${zona}</div></div>
+    </div><div class="desc">${desc}</div>`;
+
+  const K = parseFloat($("btc_K").value), ath = btc.ath;
+  const el = $("btc-eventos");
+  if (posicao === 0) { el.innerHTML = `<div class="aviso">Preencha o saldo BTC para calcular o aporte extra.</div>`; return; }
+  if (!btc.dfMes.length) { el.innerHTML = ""; return; }
+
+  const eventos = [], vistas = new Set();
+  for (const c of btc.dfMes) {
+    let zonaEv, fator;
+    if (c.l <= btc.lb2 && !vistas.has("MUITO BARATO")) { zonaEv = "MUITO BARATO"; fator = 1.5; }
+    else if (c.l <= btc.lb1 && !vistas.has("BARATO")) { zonaEv = "BARATO"; fator = 1.0; }
+    else continue;
+    vistas.add(zonaEv);
+    const dd = Math.max(0, (ath - c.l) / ath);
+    const base = posicao * dd * fator * K;
+    const ap = Math.round(Math.min(posicao * 0.20, Math.max(500, base)) * 100) / 100;
+    eventos.push({ data: c.t.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit", timeZone: "UTC" }),
+                   zona: zonaEv, low: c.l, dd, fator, aporte: ap });
+  }
+  if (!eventos.length) { el.innerHTML = `<div class="aviso">Nenhuma banda de suporte atingida no mês atual.</div>`; return; }
+
+  const total = eventos.reduce((a, e) => a + e.aporte, 0);
+  const corTot = COR.verde;
+  el.innerHTML = `<div class="total-btc" style="border-left-color:${corTot}">
+      <div class="r" style="color:${corTot}">Total sugerido no mês</div>
+      <div class="v">${brl2(total)}</div>
+      <div class="s">ATH ref.: ${usd0(ath)} · K=${fmt(K, 2)}</div></div>` +
+    eventos.map(e => { const cc = e.zona === "MUITO BARATO" ? COR.verde : COR.claro;
+      return `<div class="evento" style="border-left:2px solid ${cc}">
+        <div class="l1"><span class="z" style="color:${cc}">${e.zona}</span><span class="a">${brl2(e.aporte)}</span></div>
+        <div class="l2">${e.data} · Low ${usd0(e.low)} · DD ${fmt(e.dd * 100, 1)}% · Fator ${fmt(e.fator, 1)}x</div></div>`; }).join("");
+}
+
+// ── Carga ──
+let ultimaCarga = 0;
+async function carregar() {
+  ultimaCarga = Date.now();
+  $("btc-carregando").style.display = ""; $("btc-carregando").textContent = "Buscando dados do BTC...";
+  const [fx, b] = await Promise.all([buscarCambio(), calcularBtc().catch(() => null)]);
+  if (fx) { cambio = fx.v; estado.cambio = fx.v; salvar(); mostrarCambio(fx.quando, false); }
+  else mostrarCambio(null, true);
+  btc = b;
+  if (btc) { $("btc-carregando").style.display = "none"; $("btc-conteudo").style.display = ""; }
+  else $("btc-carregando").textContent = "Não foi possível buscar os dados do BTC.";
+  recalcular();
+  desenharGrafico();
+}
+// Sem botão de atualizar: busca ao abrir e de novo quando o app volta à tela
+// (instalado no iPhone ele é só retomado, não recarregado), se a última busca
+// tiver mais de 5 min — o mesmo TTL do cache do app desktop
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "visible" && Date.now() - ultimaCarga > 5 * 60 * 1000) carregar();
+});
+
+abrirAba(estado.aba || "rebal");
+mostrarCambio(null, true);
+recalcular();
+carregar();
+</script>
+</body>
+</html>
