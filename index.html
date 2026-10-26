@@ -296,10 +296,13 @@ function rebalan(brasil, global, aporteBrl, aporteUsd, cambio, META) {
   else if (necBr <= 0) { alocBr = 0; alocGl = totalAp; }
   else { alocBr = totalAp; alocGl = 0; }
 
+  // O aporte segue a regra do app (alvo interno = classe depois do aporte); o
+  // "Alvo" exibido é o da meta do slider (carteira futura × meta × peso), para
+  // a tela mostrar onde cada ativo deveria estar com a meta escolhida.
   const recBr = {};
   for (const [at, pa] of Object.entries(TARGETS.brasil)) {
-    const va = brasil[at] || 0, alvo = (totalBr + alocBr) * pa;
-    recBr[at] = { atual: va, alvo, aporte: Math.max(0, alvo - va),
+    const va = brasil[at] || 0, alvoAp = (totalBr + alocBr) * pa;
+    recBr[at] = { atual: va, alvo: totalFut * META.brasil * pa, aporte: Math.max(0, alvoAp - va),
       desvio: totalBr ? va / totalBr - pa : -pa, peso_atual: totalBr ? va / totalBr : 0, peso_alvo: pa };
   }
   let s = Object.values(recBr).reduce((a, v) => a + v.aporte, 0);
@@ -309,21 +312,25 @@ function rebalan(brasil, global, aporteBrl, aporteUsd, cambio, META) {
   const totalGlUsd = soma(global);
   const recGl = {};
   for (const [at, pa] of Object.entries(TARGETS.global)) {
-    const va = global[at] || 0, alvo = (totalGlUsd + alocGlUsd) * pa;
-    recGl[at] = { atual: va, alvo, aporte: Math.max(0, alvo - va),
+    const va = global[at] || 0, alvoAp = (totalGlUsd + alocGlUsd) * pa;
+    recGl[at] = { atual: va, alvo: cambio ? totalFut * META.global / cambio * pa : 0, aporte: Math.max(0, alvoAp - va),
       desvio: totalGlUsd ? va / totalGlUsd - pa : -pa, peso_atual: totalGlUsd ? va / totalGlUsd : 0, peso_alvo: pa };
   }
   s = Object.values(recGl).reduce((a, v) => a + v.aporte, 0);
   if (s > 0) { const f = Math.min(1, alocGlUsd / s); Object.values(recGl).forEach(v => v.aporte *= f); }
 
   return { totalBr, totalGl, totalPat, pesoBr, pesoGl, devBr: pesoBr - META.brasil, devGl: pesoGl - META.global,
-           alocBr, alocGl, alocGlUsd, recBr, recGl, totalAp };
+           alocBr, alocGl, alocGlUsd, recBr, recGl, totalAp, necBr, necGl,
+           metaBr: totalFut * META.brasil, metaGl: totalFut * META.global };
 }
 
 function kpi(rot, v, sub = "", cor = COR.cinza) {
   return `<div class="kpi"><div class="kpi-label">${rot}</div><div class="kpi-value">${v}</div>
     ${sub ? `<div class="kpi-sub" style="color:${cor}">${sub}</div>` : ""}</div>`;
 }
+// Meta da classe em R$ (carteira depois do aporte × % do slider) e quanto falta
+// ou sobra para ela, já contando o aporte
+const faltaMeta = (meta, nec) => `meta ${brl(meta)} · ${nec >= 0 ? "faltam" : "sobram"} ${brl(Math.abs(nec))}`;
 function cardsAtivos(rec, f) {
   return Object.entries(rec).map(([at, v]) => `
     <div class="ativo">
@@ -357,8 +364,8 @@ function recalcular() {
   $("kpis").innerHTML =
     kpi("Carteira Total", brl(r.totalPat)) +
     kpi("Aporte", brl(r.totalAp), `Brasil ${brl(r.alocBr)} · Global ${usd(r.alocGlUsd)}`) +
-    kpi("Brasil", brl(r.totalBr), `${fmt(r.pesoBr * 100, 1)}% · desvio ${pct(r.devBr, 1, true)}`, corDesvio(r.devBr)) +
-    kpi("Global", brl(r.totalGl), `${fmt(r.pesoGl * 100, 1)}% · desvio ${pct(r.devGl, 1, true)}`, corDesvio(r.devGl));
+    kpi("Brasil", brl(r.totalBr), `${fmt(r.pesoBr * 100, 1)}% · desvio ${pct(r.devBr, 1, true)}<br>${faltaMeta(r.metaBr, r.necBr)}`, corDesvio(r.devBr)) +
+    kpi("Global", brl(r.totalGl), `${fmt(r.pesoGl * 100, 1)}% · desvio ${pct(r.devGl, 1, true)}<br>${faltaMeta(r.metaGl, r.necGl)}`, corDesvio(r.devGl));
   $("hdr-br").textContent = `Carteira Brasil — aporte disponível: ${brl(r.alocBr)}`;
   $("hdr-gl").textContent = `Carteira Global — aporte disponível: ${usd(r.alocGlUsd)} (≈ ${brl(r.alocGl)})`;
   $("cart-br").innerHTML = cardsAtivos(r.recBr, brl);
